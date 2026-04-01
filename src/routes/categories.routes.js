@@ -11,8 +11,8 @@ import { protect, authorize } from '../middleware/authMiddleware.js'
 const router = express.Router()
 
 router.post('/', protect, authorize('admin', 'manager'), createCategory)
-router.get('/', protect, getCategories)
-router.get('/:id', protect, getCategory)
+router.get('/', getCategories)
+router.get('/:id', getCategory)
 router.put('/:id', protect, authorize('admin', 'manager'), updateCategory)
 router.delete('/:id', protect, authorize('admin'), deleteCategory)
 

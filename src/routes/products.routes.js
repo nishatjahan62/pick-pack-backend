@@ -12,8 +12,8 @@ const router = express.Router()
 
 // Only admin or manager can create/update/delete
 router.post('/', protect, authorize('admin', 'manager'), createProduct)
-router.get('/', protect, getProducts)
-router.get('/:id', protect, getProduct)
+router.get('/', getProducts)
+router.get('/:id', getProduct)
 router.patch('/:id', protect, authorize('admin', 'manager'), updateProduct)
 router.delete('/:id', protect, authorize('admin'), deleteProduct)
 
