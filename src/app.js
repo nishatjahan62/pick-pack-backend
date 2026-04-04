@@ -9,6 +9,8 @@ import productRoutes from "./routes/products.routes.js"
 import orderRoutes from "./routes/orders.routes.js"
 import restockRoutes from './routes/restock.routes.js'
 import statsRoutes from './routes/stats.routes.js'
+import dashboardRoutes from './routes/dashboard.routes.js'
+import adminRoutes from './routes/admin.routes.js'
 
 dotenv.config()
 connectDB()
@@ -37,6 +39,10 @@ app.use('/api/products', productRoutes)
 app.use('/api/orders', orderRoutes)
 app.use('/api/restock', restockRoutes)
 app.use('/api/stats', statsRoutes)
+app.use('/api/dashboard', dashboardRoutes)
+app.use('/api/admin', adminRoutes)
+
+
 
 app.use(errorHandler)
 

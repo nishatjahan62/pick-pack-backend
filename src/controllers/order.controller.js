@@ -76,10 +76,15 @@ export const createOrder = asyncHandler(async (req, res) => {
 })
 
 // Get All Orders
+// Get All Orders — এই function টা update করো
 export const getOrders = asyncHandler(async (req, res) => {
   const { status, date } = req.query
 
   const filter = {}
+ if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+    filter.createdBy = req.user._id
+  }
+
   if (status) filter.status = status
   if (date) {
     const start = new Date(date)
@@ -111,8 +116,8 @@ export const getOrder = asyncHandler(async (req, res) => {
 // Update Order Status
 export const updateOrderStatus = asyncHandler(async (req, res) => {
   const { status } = req.body
-  const order = await Order.findById(req.params.id)
 
+  const order = await Order.findById(req.params.id)
   if (!order) throw new ApiError(404, 'Order not found')
 
   if (order.status === ORDER_STATUS.CANCELLED) {
@@ -123,17 +128,24 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Delivered order cannot be updated')
   }
 
-  if (!Object.values(ORDER_STATUS).includes(status)) {
+  // case-insensitive check
+  const validStatuses = Object.values(ORDER_STATUS).map(s => s.toLowerCase())
+  if (!validStatuses.includes(status.toLowerCase())) {
     throw new ApiError(400, 'Invalid order status')
   }
 
-  order.status = status
+  // proper cased value set করো
+  const properStatus = Object.values(ORDER_STATUS).find(
+    s => s.toLowerCase() === status.toLowerCase()
+  )
+
+  order.status = properStatus
   await order.save()
 
   await ActivityLog.create({
-    action: `Order #${order._id} marked as ${status}`,
+    action: `Order marked as ${properStatus}`,
     performedBy: req.user._id,
-    metadata: { orderId: order._id, status },
+    metadata: { orderId: order._id, status: properStatus },
   })
 
   res.json(new ApiResponse(200, order, 'Order status updated'))
