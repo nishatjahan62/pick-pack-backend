@@ -6,7 +6,6 @@ import { asyncHandler } from '../utils/asyncHandler.js'
 import { ORDER_STATUS, PRODUCT_STATUS, LOG_ACTIONS } from '../utils/constants.js'
 import ActivityLog from '../models/activitylog.model.js'
 
-// Create Order
 export const createOrder = asyncHandler(async (req, res) => {
   const { customerName, items } = req.body
 
@@ -14,7 +13,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Customer name and items are required')
   }
 
-  // duplicate product check
   const productIds = items.map((i) => i.product)
   const uniqueIds = new Set(productIds)
   if (uniqueIds.size !== productIds.length) {
@@ -31,25 +29,30 @@ export const createOrder = asyncHandler(async (req, res) => {
       throw new ApiError(404, `Product not found`)
     }
 
-    // inactive product check
     if (product.status === PRODUCT_STATUS.OUT_OF_STOCK) {
       throw new ApiError(400, `This product is currently unavailable: ${product.name}`)
     }
 
-    // stock check
     if (item.quantity > product.stock) {
       throw new ApiError(400, `Only ${product.stock} items available in stock for ${product.name}`)
     }
 
-    // stock deduct
     product.stock -= item.quantity
 
-    // auto out of stock
     if (product.stock === 0) {
       product.status = PRODUCT_STATUS.OUT_OF_STOCK
     }
 
     await product.save()
+
+    // Log low stock threshold trigger
+    if (product.stock <= product.minStockThreshold) {
+      await ActivityLog.create({
+        action: `Product "${product.name}" added to Restock Queue (Stock: ${product.stock})`,
+        performedBy: req.user._id,
+        metadata: { productId: product._id, stock: product.stock }
+      })
+    }
 
     totalPrice += product.price * item.quantity
     orderItems.push({
@@ -67,7 +70,7 @@ export const createOrder = asyncHandler(async (req, res) => {
   })
 
   await ActivityLog.create({
-    action: LOG_ACTIONS.ORDER_CREATED,
+    action: `Order #${order._id.toString().slice(-4)} created for ${customerName}`,
     performedBy: req.user._id,
     metadata: { orderId: order._id, customerName },
   })
@@ -75,13 +78,11 @@ export const createOrder = asyncHandler(async (req, res) => {
   res.status(201).json(new ApiResponse(201, order, 'Order created'))
 })
 
-// Get All Orders
-// Get All Orders — এই function টা update করো
 export const getOrders = asyncHandler(async (req, res) => {
   const { status, date } = req.query
-
   const filter = {}
- if (req.user.role !== 'admin' && req.user.role !== 'manager') {
+
+  if (req.user.role !== 'admin' && req.user.role !== 'manager') {
     filter.createdBy = req.user._id
   }
 
@@ -102,39 +103,24 @@ export const getOrders = asyncHandler(async (req, res) => {
   res.json(new ApiResponse(200, orders, 'Orders fetched'))
 })
 
-// Get Single Order
 export const getOrder = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id)
     .populate('items.product', 'name price')
     .populate('createdBy', 'name')
 
   if (!order) throw new ApiError(404, 'Order not found')
-
   res.json(new ApiResponse(200, order, 'Order fetched'))
 })
 
-// Update Order Status
 export const updateOrderStatus = asyncHandler(async (req, res) => {
   const { status } = req.body
-
   const order = await Order.findById(req.params.id)
   if (!order) throw new ApiError(404, 'Order not found')
 
-  if (order.status === ORDER_STATUS.CANCELLED) {
-    throw new ApiError(400, 'Cancelled order cannot be updated')
+  if (order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.DELIVERED) {
+    throw new ApiError(400, 'Order status cannot be updated further')
   }
 
-  if (order.status === ORDER_STATUS.DELIVERED) {
-    throw new ApiError(400, 'Delivered order cannot be updated')
-  }
-
-  // case-insensitive check
-  const validStatuses = Object.values(ORDER_STATUS).map(s => s.toLowerCase())
-  if (!validStatuses.includes(status.toLowerCase())) {
-    throw new ApiError(400, 'Invalid order status')
-  }
-
-  // proper cased value set করো
   const properStatus = Object.values(ORDER_STATUS).find(
     s => s.toLowerCase() === status.toLowerCase()
   )
@@ -143,7 +129,7 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   await order.save()
 
   await ActivityLog.create({
-    action: `Order marked as ${properStatus}`,
+    action: `Order #${order._id.toString().slice(-4)} marked as ${properStatus}`,
     performedBy: req.user._id,
     metadata: { orderId: order._id, status: properStatus },
   })
@@ -151,21 +137,14 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
   res.json(new ApiResponse(200, order, 'Order status updated'))
 })
 
-// Cancel Order
 export const cancelOrder = asyncHandler(async (req, res) => {
   const order = await Order.findById(req.params.id).populate('items.product')
-
   if (!order) throw new ApiError(404, 'Order not found')
 
-  if (order.status === ORDER_STATUS.CANCELLED) {
-    throw new ApiError(400, 'Order is already cancelled')
+  if (order.status === ORDER_STATUS.CANCELLED || order.status === ORDER_STATUS.DELIVERED) {
+    throw new ApiError(400, 'Order cannot be cancelled')
   }
 
-  if (order.status === ORDER_STATUS.DELIVERED) {
-    throw new ApiError(400, 'Delivered order cannot be cancelled')
-  }
-
-  // stock restore
   for (const item of order.items) {
     const product = await Product.findById(item.product)
     if (product) {
@@ -181,7 +160,7 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   await order.save()
 
   await ActivityLog.create({
-    action: LOG_ACTIONS.ORDER_CANCELLED,
+    action: `Order #${order._id.toString().slice(-4)} was cancelled`,
     performedBy: req.user._id,
     metadata: { orderId: order._id },
   })
